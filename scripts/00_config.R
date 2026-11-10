@@ -200,6 +200,16 @@ cohort_settings <- list(
 )
 
 
+### NEW -- temporal Ne (04_temporal_ne.R)
+# Comparisons spanning fewer years than this are dropped (Waples 1990; Waples &
+# Yokota 2007). The Methods quote this value.
+temporal_ne_settings <- list(
+  min_years_apart           = 2,
+  primary_generation_length = 1,                    # years; the value in the text
+  generation_lengths        = c(1.0, 1.5, 2.0, 2.5) # sensitivity table
+)
+
+
 # -----------------------------------------------------------------------------
 # Location
 # -----------------------------------------------------------------------------
