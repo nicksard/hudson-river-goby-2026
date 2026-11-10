@@ -25,7 +25,7 @@ colony.dat.create_FLEX.R <- function(moms = NA, dads = NA, kids, markers,
   
   message(paste("Opening file connection for:", output_filename))
   # Open the file connection once (in "write" mode, which truncates)
-  file_conn <- file(output_filename, "w")
+  file_conn <- file(output_filename, "wb")   ### CHANGED: binary mode writes LF line endings on Windows; COLONY runs on Linux
   
   # Ensure the connection is closed when the function exits,
   # even if it errors out.
