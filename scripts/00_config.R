@@ -210,6 +210,37 @@ temporal_ne_settings <- list(
 )
 
 
+### NEW -- COLONY sibship inputs (06_colony_inputs.R)
+# Values carried over unchanged from the September runs (Pedigree Pipeline for
+# loop.V6.R and the Figure 4 run, "Medium_Medium_ALF_Yes"), so the rerun differs
+# from the stand-in results only in the data. The Methods quote these.
+colony_settings <- list(
+  project_name         = "rgSibship",
+  error_rate_geno      = 0.02,    # allelic dropout
+  error_rate_other     = 0.001,   # other genotyping error
+  run_length           = 2,       # 1 short, 2 medium, 3 long, 4 very long
+  likelihood_precision = 1,       # 0 low, 1 medium, 2 high, 3 very high
+  update_alfs          = 1,       # 1 = update allele frequencies
+  spp_type             = 2,       # dioecious
+  inbreeding           = 0,
+  female_gamy          = 0,       # 0 = polygamy
+  male_gamy            = 0,
+  full_likelihood      = 1,
+  sib_scale            = 1,
+  sib_prior            = 0,
+
+  # Optional locus sweep (rebuilds the locus-number axis of Figure 3) at the
+  # same settings. The full panel is always written as the primary run.
+  run_locus_sweep = TRUE,
+  sweep_loci      = c(250, 500, 1000, 2000, 5000, 8000),
+  sweep_subsets   = c("maf", "random"),
+
+  # Path to the COLONY executable, used only to write run_all.bat. Edit to
+  # match your install.
+  colony_exe = "C:/Program Files (x86)/COLONY2/colony2s.exe"
+)
+
+
 # -----------------------------------------------------------------------------
 # Location
 # -----------------------------------------------------------------------------
