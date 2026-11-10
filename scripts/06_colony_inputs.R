@@ -21,13 +21,14 @@
 #   * The VCF is parsed directly (readr), not through vcfR. GT 0/1 becomes
 #     COLONY alleles 1/2 and missing becomes 0 -- equivalent to the old
 #     A/C/G/T -> integer map, since COLONY only needs distinct codes per locus.
-#   * "maf" subsets rank loci by minor-allele frequency computed in the
-#     analysis set. The September driver ranked by maf(vcf, element = 2)[, 2];
-#     in vcfR that column is the count of missing genotypes ("NA"), not the
-#     frequency, so those subsets were likely ordered by missingness. Check
-#     with head(vcfR::maf(vcf, element = 2)) before saying so in print.
-#   * One run per locus subset at the Figure 4 settings, not the 448-run grid.
-#     The grid showed run length, precision and ALF updating barely matter.
+#   * No MAF-ranked subsets. The September driver ranked by
+#     maf(vcf, element = 2)[, 2], which is vcfR's missing-genotype count
+#     (confirmed 2026-11-10). Ranking by true MAF fails too: the top loci sit
+#     near p = 0.5, where COLONY collapses all 321 fish into one full-sib family.
+#   * Design (colony_settings$design): a replicated random-subset locus sweep
+#     plus a settings sweep, ordered so the primary full-panel run goes first
+#     and cheap runs next. Run names start c001, c002, ... so `ls` order is the
+#     intended submission order.
 #
 # Inputs:   paths$filtered_vcf, paths$sample_meta
 # Outputs:  results/06_colony/<run>.dat, <run>_LOCUS_MAP.csv,
@@ -88,7 +89,7 @@ need(all(nchar(gt_calls) == 3), "Unexpected genotype string (multi-allelic or ha
 
 locus_ids <- paste0(vcf_table$CHROM, ":", vcf_table$POS)
 
-# Minor-allele frequency in the analysis set, for the "maf" subsets
+# Minor-allele frequency in the analysis set (reported only)
 n_alt    <- rowSums(allele_1 == "2") + rowSums(allele_2 == "2")
 n_called <- rowSums(allele_1 != "0") + rowSums(allele_2 != "0")
 alt_freq <- n_alt / n_called
@@ -97,25 +98,53 @@ msg(sprintf("  locus MAF in analysis set: min %.3f, median %.3f", min(locus_maf)
 
 
 # -----------------------------------------------------------------------------
-# 2. Run plan
+# 2. Run design  ### CHANGED: replicated locus sweep + settings sweep, no MAF arm
 # -----------------------------------------------------------------------------
-run_plan <- data.frame(subset_type = "all", num_loci = nrow(vcf_table), stringsAsFactors = FALSE)
-if (isTRUE(settings$run_locus_sweep)) {
-  run_plan <- bind_rows(run_plan,
-                        expand.grid(subset_type = settings$sweep_subsets,
-                                    num_loci = settings$sweep_loci,
-                                    stringsAsFactors = FALSE))
-}
-run_plan <- run_plan %>%
-  mutate(run_name = sprintf("%s_%s_%05d", settings$project_name, subset_type, num_loci))
+design <- settings$design
+n_all  <- nrow(vcf_table)
+base   <- c(run_length = settings$run_length, precision = settings$likelihood_precision,
+            update_alfs = settings$update_alfs)
 
-set.seed(random_seed)   # random subsets reproducible from the config seed
+locus_sweep <- expand.grid(num_loci = c(design$sweep_loci, n_all),
+                           replicate = seq_len(design$replicates),
+                           run_length = base[["run_length"]], precision = base[["precision"]],
+                           update_alfs = base[["update_alfs"]])
+small_grid <- expand.grid(num_loci = design$settings_loci_small, replicate = 1,
+                          run_length = design$small_run_length, precision = design$small_precision,
+                          update_alfs = design$small_update_alfs)
+full_grid  <- expand.grid(num_loci = n_all, replicate = 1,
+                          run_length = design$full_run_length, precision = design$full_precision,
+                          update_alfs = design$full_update_alfs)
+
+run_plan <- bind_rows(
+  locus_sweep %>% mutate(part = "locus_sweep"),
+  small_grid  %>% mutate(part = "settings_sweep"),
+  full_grid   %>% mutate(part = "settings_sweep")
+) %>%
+  distinct(num_loci, replicate, run_length, precision, update_alfs, .keep_all = TRUE) %>%
+  mutate(subset_type = ifelse(num_loci == n_all, "all", "random"),
+         is_primary  = num_loci == n_all & replicate == 1 & run_length == base[["run_length"]] &
+                       precision == base[["precision"]] & update_alfs == base[["update_alfs"]],
+         # rough cost, so the array starts cheap runs first and the primary run at once
+         cost = num_loci * 2^(run_length - 1) * 2^precision) %>%
+  arrange(desc(is_primary), cost) %>%
+  mutate(order = row_number(),
+         run_name = sprintf("c%03d_%s_%05d_r%d_RL%d_P%d_A%d", order, subset_type, num_loci,
+                            replicate, run_length, precision, update_alfs))
+
+msg(sprintf("  design: %d runs (%d locus sweep, %d settings sweep); primary = %s",
+            nrow(run_plan), sum(run_plan$part == "locus_sweep"),
+            sum(run_plan$part == "settings_sweep"), run_plan$run_name[1]))
+
+# Old .dat files from earlier designs would end up in the same job list
+old_files <- list.files(output_dir, pattern = "\\.dat$|_LOCUS_MAP\\.csv$", full.names = TRUE)
+if (length(old_files)) { file.remove(old_files); msg("  removed ", length(old_files), " old input files") }
 
 
 # -----------------------------------------------------------------------------
 # 3. Write one .dat per run
 # -----------------------------------------------------------------------------
-write_colony_run <- function(locus_index, run_name) {
+write_colony_run <- function(locus_index, run_name, run) {   ### CHANGED: per-run settings
   locus_names <- paste0("LOCUS", seq_along(locus_index))
 
   genotypes <- data.frame(Sample_ID = analysis_ids, stringsAsFactors = FALSE)
@@ -134,8 +163,8 @@ write_colony_run <- function(locus_index, run_name) {
     kids = genotypes, markers = markers, moms = NA, dads = NA,
     analysis_type = "sibship",
     output_filename = dat_file, project_name = run_name,
-    update.alfs = settings$update_alfs, run.length = settings$run_length,
-    likelihood.precision = settings$likelihood_precision,
+    update.alfs = run$update_alfs, run.length = run$run_length,
+    likelihood.precision = run$precision,
     spp.type = settings$spp_type, inbreeding = settings$inbreeding, ploidy = 0,
     fem.gamy = settings$female_gamy, mal.gamy = settings$male_gamy,
     clone = 0, sib.scale = settings$sib_scale, sib.prior = settings$sib_prior,
@@ -151,16 +180,14 @@ write_colony_run <- function(locus_index, run_name) {
 dat_files <- character(nrow(run_plan))
 for (run_i in seq_len(nrow(run_plan))) {
   run <- run_plan[run_i, ]
-  locus_index <- switch(run$subset_type,
-    all    = seq_len(nrow(vcf_table)),
-    maf    = order(locus_maf, decreasing = TRUE)[seq_len(run$num_loci)],
-    random = sort(sample(nrow(vcf_table), run$num_loci))
-  )
-  dat_files[run_i] <- write_colony_run(locus_index, run$run_name)
-  msg(sprintf("  wrote %-34s %5d loci x %d fish", dat_files[run_i], length(locus_index),
-              length(analysis_ids)))
+  # Same locus draw for a given (count, replicate) whatever the run order, so
+  # the settings sweep at 1,000 loci uses exactly the replicate-1 subset
+  set.seed(random_seed + 1000L * run$replicate + run$num_loci)
+  locus_index <- if (run$subset_type == "all") seq_len(n_all) else sort(sample(n_all, run$num_loci))
+  set.seed(random_seed + run$order)          # COLONY's own seed, drawn inside the writer
+  dat_files[run_i] <- write_colony_run(locus_index, run$run_name, run)
 }
-
+msg("  wrote ", length(dat_files), " .dat files")
 run_plan$dat_file <- dat_files
 write_csv(run_plan, file.path(output_dir, "run_plan.csv"))
 writeLines(dat_files, file.path(output_dir, "job_list.txt"))

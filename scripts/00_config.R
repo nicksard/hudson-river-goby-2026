@@ -229,11 +229,27 @@ colony_settings <- list(
   sib_scale            = 1,
   sib_prior            = 0,
 
-  # Optional locus sweep (rebuilds the locus-number axis of Figure 3) at the
-  # same settings. The full panel is always written as the primary run.
-  run_locus_sweep = TRUE,
-  sweep_loci      = c(250, 500, 1000, 2000, 5000, 8000),
-  sweep_subsets   = c("maf", "random"),
+  ### CHANGED -- the run design (replaces the single locus sweep and the
+  # September 448-run grid). MAF-ranked subsets are gone: top-MAF SNPs sit near
+  # p = 0.5, where one giant full-sib family fits as well as unrelatedness and
+  # COLONY collapses (shown 2026-11-10, with and without ALF updating).
+  design = list(
+    replicates = 3,      # independent random locus draws + COLONY seeds
+
+    # Part 1, locus sweep: does locus number drive Nb? Random subsets at every
+    # count, plus the full panel, all at the settings above.
+    sweep_loci = c(250, 500, 1000, 2000, 5000, 8000),
+
+    # Part 2, settings sweep: is medium good enough? Full grid where runs are
+    # cheap; the 2 x 2 x ALF of the old figure on the full panel.
+    settings_loci_small = 1000,
+    small_run_length    = 1:4,
+    small_precision     = 0:3,
+    small_update_alfs   = 0:1,
+    full_run_length     = 2:3,
+    full_precision      = 1:2,
+    full_update_alfs    = 0:1
+  ),
 
   # Path to the COLONY executable, used only to write run_all.bat. Edit to
   # match your install.
