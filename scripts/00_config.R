@@ -249,7 +249,14 @@ ldne_settings <- list(
   # Groups written as one .gen each. "all" = the whole analysis set; "cohort" =
   # one file per birth cohort. Add "albany_troy_cohort" to also write the
   # Albany+Troy-pooled cohort files the earlier LDNe tables used.
-  groupings = c("all", "cohort"),
+  groupings = c("all", "cohort", "near_complete"),
+
+  ### NEW -- "near_complete": a robustness subset with almost no missing data,
+  # where NeEstimator's missing-data revision (Peel et al. 2013) should change
+  # nothing. Fish are filtered first, then loci are judged on the kept fish.
+  # 0.05 / 0.02 keeps ~256 fish x ~8,775 loci at ~0.7% residual missingness.
+  near_complete_max_fish_missing  = 0.05,
+  near_complete_max_locus_missing = 0.02,
 
   # Waples et al. (2016) finite-chromosome correction: divide Nb and both CI
   # limits by 0.098 + 0.219 * ln(n_chromosomes). Round goby n = 23 (cite karyotype).

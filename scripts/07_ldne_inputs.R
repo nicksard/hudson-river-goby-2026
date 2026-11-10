@@ -100,19 +100,36 @@ if ("albany_troy_cohort" %in% settings$groupings) {
 }
 
 
+### NEW -- near-complete subset (robustness check on the missing-data revision)
+group_loci <- list()
+if ("near_complete" %in% settings$groupings) {
+  is_missing    <- gt_calls == "./."
+  fish_missing  <- colMeans(is_missing)
+  kept_fish     <- names(fish_missing)[fish_missing <= settings$near_complete_max_fish_missing]
+  locus_missing <- rowMeans(is_missing[, kept_fish, drop = FALSE])
+  kept_loci     <- which(locus_missing <= settings$near_complete_max_locus_missing)
+  residual      <- mean(is_missing[kept_loci, kept_fish])
+  group_members[["NearComplete_All"]] <- kept_fish
+  group_loci[["NearComplete_All"]]    <- kept_loci
+  msg(sprintf("  near-complete subset: %d fish (<= %.0f%% missing), %d loci (<= %.0f%%), residual missing %.2f%%",
+              length(kept_fish), 100 * settings$near_complete_max_fish_missing,
+              length(kept_loci), 100 * settings$near_complete_max_locus_missing, 100 * residual))
+}
+
+
 # -----------------------------------------------------------------------------
 # 3. Write .gen files and NeEstimator info files
 # -----------------------------------------------------------------------------
-write_genepop <- function(group_name, sample_ids) {
+write_genepop <- function(group_name, sample_ids, loci = seq_len(nrow(genepop_matrix))) {   ### CHANGED: optional locus subset
   gen_file <- file.path(genepop_dir, paste0(group_name, ".gen"))
   con <- file(gen_file, "w")
   on.exit(close(con))
   writeLines(sprintf("Hudson River round goby | %s | n = %d | %d loci | phase 1 panel",
-                     group_name, length(sample_ids), nrow(genepop_matrix)), con)
-  writeLines(paste(locus_names, collapse = ", "), con)   # same layout as v2, which NeEstimator read
+                     group_name, length(sample_ids), length(loci)), con)
+  writeLines(paste(locus_names[loci], collapse = ", "), con)   # same layout as v2, which NeEstimator read
   writeLines("Pop", con)
   for (id in sample_ids) {
-    writeLines(paste0(id, " , ", paste(genepop_matrix[, id], collapse = " ")), con)
+    writeLines(paste0(id, " , ", paste(genepop_matrix[loci, id], collapse = " ")), con)
   }
   basename(gen_file)
 }
@@ -124,7 +141,8 @@ manifest <- data.frame()
 info_files <- character()
 for (group_name in names(group_members)) {
   ids <- group_members[[group_name]]
-  gen_name <- write_genepop(group_name, ids)
+  loci <- if (is.null(group_loci[[group_name]])) seq_len(nrow(genepop_matrix)) else group_loci[[group_name]]
+  gen_name <- write_genepop(group_name, ids, loci)
 
   info_file <- file.path(ne_dir, paste0(group_name, "_info.txt"))
   writeLines(c(
@@ -139,9 +157,14 @@ for (group_name in names(group_members)) {
     as.character(settings$mating)          # mating model
   ), info_file)
   info_files <- c(info_files, basename(info_file))
+  ### NEW -- one .bat per group, so a single run can be repeated or added alone
+  writeLines(c("@echo off", "cd /d \"%~dp0\"",
+               sprintf("\"%s\" i:%s", gsub("/", "\\\\", settings$ne_exe), basename(info_file)),
+               "pause"),
+             file.path(ne_dir, paste0("run_", group_name, ".bat")))
 
   manifest <- rbind(manifest, data.frame(
-    group = group_name, n = length(ids), gen_file = gen_name,
+    group = group_name, n = length(ids), n_loci = length(loci), gen_file = gen_name,
     ne_output = paste0(group_name, "_Ne.txt"),
     flag = ifelse(length(ids) < cohort_settings$min_n_estimator,
                   paste0("n < ", cohort_settings$min_n_estimator, ": low precision"), "")))
