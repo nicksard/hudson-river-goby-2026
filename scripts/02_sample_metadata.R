@@ -319,13 +319,13 @@ msg(sprintf("    ANALYSIS SET                             %4d", sum(sample_metad
 analysis_set <- sample_metadata %>% filter(analysis_keep)
 
 msg("\n  cohort sizes:")
-print(as.data.frame(analysis_set %>% count(cohort, name = "n")))
+msg_table(as.data.frame(analysis_set %>% count(cohort, name = "n")))
 
 # This cross-tabulation is the age structure of the sample, and it is also the
 # check that grouping by cohort is doing something different from grouping by
 # collection year. Off-diagonal cells are Age-1 fish.
 msg("\n  collection year x birth cohort (off-diagonal cells are Age-1 fish):")
-print(table(analysis_set$collection_year, analysis_set$cohort,
+msg_table(table(analysis_set$collection_year, analysis_set$cohort,
             dnn = c("collected", "cohort")))
 
 # The cohort-by-location tables below are worth reading carefully before
@@ -335,7 +335,7 @@ print(table(analysis_set$collection_year, analysis_set$cohort,
 for (scheme_name in names(location_schemes)) {
   msg("\n  cohort x location [", scheme_name, "]  (cells >= ",
       cohort_settings$min_n_estimator, " are usable for Fst):")
-  print(table(analysis_set[[paste0("loc_", scheme_name)]], analysis_set$cohort,
+  msg_table(table(analysis_set[[paste0("loc_", scheme_name)]], analysis_set$cohort,
               dnn = c(scheme_name, "cohort")))
 }
 

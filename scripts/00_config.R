@@ -350,6 +350,14 @@ msg <- function(...) {
   invisible(line)
 }
 
+### NEW -- print() output goes to the console only, so tables never reached the
+### log. msg_table() prints as before and also writes each line to the log.
+msg_table <- function(x, ...) {
+  table_lines <- utils::capture.output(print(x, ...))
+  for (line in table_lines) msg(line)
+  invisible(x)
+}
+
 log_end <- function() {
   if (!is.null(log_connection)) {
     close(log_connection)

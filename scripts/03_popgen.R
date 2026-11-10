@@ -200,7 +200,7 @@ analyse_grouping <- function(grouping_spec) {
   names(group_sizes)[1] <- "group"
 
   msg("  ", nlevels(group_factor), " groups, ", nInd(genind_group), " individuals:")
-  print(group_sizes)
+  msg_table(group_sizes)
 
   well_powered <- group_sizes$group[group_sizes$N >= cohort_settings$min_n_estimator]
   underpowered <- group_sizes$group[group_sizes$N <  cohort_settings$min_n_estimator]
@@ -251,7 +251,7 @@ analyse_grouping <- function(grouping_spec) {
 
   write_csv(diversity_summary, file.path(output_dir, "diversity.csv"))
   msg("\n  diversity:")
-  print(as.data.frame(diversity_summary %>%
+  msg_table(as.data.frame(diversity_summary %>%
                         mutate(across(where(is.numeric), ~round(.x, 4)))))
 
   plot_heterozygosity <- heterozygosity_long %>%
@@ -329,7 +329,7 @@ analyse_grouping <- function(grouping_spec) {
 
     write_csv(fst_pairs, file.path(output_dir, "pairwise_fst.csv"))
     msg("\n  pairwise Fst:")
-    print(as.data.frame(fst_pairs %>% mutate(across(where(is.numeric), ~signif(.x, 4)))))
+    msg_table(as.data.frame(fst_pairs %>% mutate(across(where(is.numeric), ~signif(.x, 4)))))
 
     # A negative Weir & Cockerham Fst estimate means the between-group variance
     # component came out below zero, which cannot be true and simply says the
@@ -397,7 +397,7 @@ analyse_grouping <- function(grouping_spec) {
       fst_pairs <- fst_pairs %>% left_join(p_long, by = c("group1", "group2"))
 
       msg("  permutation p-values (one-sided; p > 0.05 means indistinguishable):")
-      print(as.data.frame(fst_pairs %>%
+      msg_table(as.data.frame(fst_pairs %>%
                             mutate(Fst = signif(Fst, 3), p_perm = round(p_perm, 3))))
       write_csv(fst_pairs, file.path(output_dir, "pairwise_fst.csv"))
     }
@@ -590,7 +590,7 @@ pca_outliers <- shared_pca$scores %>%
 if (nrow(pca_outliers) > 0) {
   msg(sprintf("\n  !! %d individual(s) beyond %d SD on a leading axis:",
               nrow(pca_outliers), outlier_threshold))
-  print(as.data.frame(pca_outliers %>%
+  msg_table(as.data.frame(pca_outliers %>%
                         mutate(across(where(is.numeric), ~round(.x, 2)))))
   msg("  Run the allele-balance diagnostic on these before interpreting them.")
   write_csv(pca_outliers, file.path(paths$dir_popgen, "pca_outliers.csv"))
@@ -605,7 +605,7 @@ grouping_overview <- map_dfr(popgen_groupings, analyse_grouping)
 msg("\n", strrep("=", 72))
 msg("  OVERVIEW")
 msg(strrep("=", 72))
-print(as.data.frame(grouping_overview %>%
+msg_table(as.data.frame(grouping_overview %>%
                       mutate(across(where(is.numeric), ~signif(.x, 4)))))
 write_csv(grouping_overview, file.path(paths$dir_popgen, "grouping_overview.csv"))
 
