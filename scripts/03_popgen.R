@@ -94,7 +94,7 @@ n_bootstrap_reps  <- 200
 # but does not invalidate it, and the observed statistic is computed on the same
 # subset so the comparison stays like-for-like. Off by default; turn it on for
 # the run that produces the final tables.
-run_fst_permutation <- FALSE
+run_fst_permutation <- TRUE
 n_permutations      <- 200
 n_permutation_loci  <- 2000
 
