@@ -317,7 +317,7 @@ location_schemes <- list(
   # Albany and Troy pooled, everything else left as-is. This is the grouping the
   # existing LDNe tables use, kept so the new numbers stay comparable to them.
   albany_troy = function(sample_info) {
-    ifelse(sample_info$region %in% c("Albany", "Troy"), "Albany_Troy", sample_info$region)
+    ifelse(sample_info$region %in% c("Albany", "Troy"), "Albany_Troy", as.character(sample_info$region))   ### CHANGED: region is a factor, so ifelse() was returning its integer codes
   }
 )
 
