@@ -241,6 +241,24 @@ colony_settings <- list(
 )
 
 
+### NEW -- LDNe inputs (07_ldne_inputs.R) and Table 3 corrections (08)
+ldne_settings <- list(
+  pcrit  = 0.05,       # the critical value reported in Table 3
+  mating = 0,          # 0 = random mating, 1 = monogamy
+
+  # Groups written as one .gen each. "all" = the whole analysis set; "cohort" =
+  # one file per birth cohort. Add "albany_troy_cohort" to also write the
+  # Albany+Troy-pooled cohort files the earlier LDNe tables used.
+  groupings = c("all", "cohort"),
+
+  # Waples et al. (2016) finite-chromosome correction: divide Nb and both CI
+  # limits by 0.098 + 0.219 * ln(n_chromosomes). Round goby n = 23 (cite karyotype).
+  n_chromosomes = 23,
+
+  ne_exe = "G:/My Drive/Programs/NeEstimator/Ne2-1.exe"
+)
+
+
 # -----------------------------------------------------------------------------
 # Location
 # -----------------------------------------------------------------------------
