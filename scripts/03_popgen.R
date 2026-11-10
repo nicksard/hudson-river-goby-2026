@@ -238,12 +238,26 @@ analyse_grouping <- function(grouping_spec) {
   # it does not loop over pairs, so it runs by default unlike the pairwise Fst
   # bootstrap. Same caveat about locus non-independence applies to its width.
   diversity_summary <- tryCatch({
-    fis_bootstrap <- boot.ppfis(dat = hierfstat_data, nboot = n_bootstrap_reps,
-                                quant = c(0.025, 0.975))
-    fis_intervals <- as.data.frame(fis_bootstrap$fis.ci)
-    names(fis_intervals) <- c("Fis_L95", "Fis_U95")
-    fis_intervals$group <- levels(group_factor)
-    left_join(diversity_summary, fis_intervals, by = "group")
+    ### CHANGED (patch 14): bootstrap one group at a time. boot.ppfis returns
+    ### its CI rows in its own population order, which is not
+    ### levels(group_factor); labelling them positionally attached CIs to the
+    ### wrong groups (e.g. reach: Above_dam 0.0046 with CI 0.0077-0.0105).
+    ### Rows of hierfstat_data follow the individuals of genind_group, which
+    ### are the individuals of group_factor in the same order.
+    need(nrow(hierfstat_data) == length(group_factor),
+         "hierfstat_data and group_factor have different lengths.")
+    fis_intervals <- bind_rows(lapply(levels(group_factor), function(level) {
+      rows <- which(group_factor == level)
+      fis_bootstrap <- boot.ppfis(dat = hierfstat_data[rows, , drop = FALSE],
+                                  nboot = n_bootstrap_reps, quant = c(0.025, 0.975))
+      tibble(group = level, Fis_L95 = fis_bootstrap$fis.ci[1, 1],
+             Fis_U95 = fis_bootstrap$fis.ci[1, 2])
+    }))
+    out <- left_join(diversity_summary, fis_intervals, by = "group")
+    outside <- out$group[!is.na(out$Fis_L95) & (out$Fis < out$Fis_L95 | out$Fis > out$Fis_U95)]
+    if (length(outside) > 0)
+      msg("  !! Fis outside its own bootstrap CI (check): ", paste(outside, collapse = ", "))
+    out
   }, error = function(e) {
     msg("  (per-group Fis bootstrap skipped: ", conditionMessage(e), ")")
     diversity_summary
