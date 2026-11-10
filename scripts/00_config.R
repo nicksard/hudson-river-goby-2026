@@ -321,16 +321,20 @@ region_patterns <- c(
   "Roseton"      = "Roseton"
 )
 
-# Approximate downstream ordering, used only to order factor levels so that
-# figures read north-to-south instead of alphabetically. Not used to compute
-# anything.
-region_downstream_order <- c(
-  "Lock_C1", "Mohawk_River",
-  "Poesten_Kill", "Troy", "Albany",
-  "Coxsackie", "Hannacroix", "Catskill",
-  "Black_Creek", "Twaalfkill", "Mill_Creek",
-  "Lloyd", "Poughkeepsie", "Roseton"
+### CHANGED -- river kilometres from GobyMasterMetadata_NS.xlsx (sheet 4), so
+# figures order sites by position on the river, not by guesswork. The earlier
+# hand-written order had Mill Creek far downstream (it is at Rensselaer, rkm
+# 231) and Coxsackie above Hannacroix. Poesten Kill is not in the sheet; it
+# enters the Hudson at Troy, so 245 is an assumption -- Nick to confirm.
+site_rkm <- c(
+  Lock_C1 = 253, Mohawk_River = 250, Troy = 246, Poesten_Kill = 245,
+  Albany = 233, Mill_Creek = 231, Hannacroix = 214, Coxsackie = 199,
+  Catskill = 182, Black_Creek = 135, Lloyd = 121, Poughkeepsie = 121,
+  Twaalfkill = 120, Roseton = 100
 )
+
+# North-to-south order used for factor levels in tables and figures
+region_downstream_order <- names(sort(site_rkm, decreasing = TRUE))
 
 # Named ways of turning region into a grouping variable. Each is a function of
 # the metadata table returning one label per row; NA means "leave this fish out
