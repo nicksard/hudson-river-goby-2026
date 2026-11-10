@@ -1,0 +1,21 @@
+model {
+
+	#For each sex
+	for(i in 1:2) {
+	  omega[i] ~ dbeta(1,1)
+	  p[i] ~ dbeta(1,1)
+
+	  #Run through and model as a separate population with nObs draws (but share p)
+	  for (j in 1:nDet) {
+        Pres[i,j] ~ dbern(omega[i])
+	    Prob[i,j] <- Pres[i,j] * p[i] + 0.0000001
+	  }
+	  Detects[i,1:nDet] ~ dmulti(Prob[i,1:nDet], nObs[i])
+	  Npar[i] <- sum(Pres[i,1:nDet])
+    }
+	
+	Npar_all <- sum(Npar[1:2])
+
+ }
+  
+

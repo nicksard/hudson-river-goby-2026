@@ -49,3 +49,8 @@ po/*~
 rsconnect/
 
 data/*.vcf
+
+# local inputs and regenerable outputs
+data/raw/
+data/Past files/
+results/
