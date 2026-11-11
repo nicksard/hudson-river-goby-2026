@@ -171,6 +171,43 @@ wc_pairwise_fst <- function(n, allele_count, het_count) {
   out
 }
 
+### ADDED (patch 19): per-group counts from a genind, shared by the fast
+### diversity and Fst code. groups x loci matrices: genotyped individuals,
+### copies of the first allele, heterozygotes.
+group_counts <- function(genind_object, groups) {
+  first_allele <- !duplicated(locFac(genind_object))
+  dosage <- tab(genind_object)[, first_allele, drop = FALSE]
+  colnames(dosage) <- locNames(genind_object)
+  genotyped <- !is.na(dosage) * 1
+  allele    <- ifelse(is.na(dosage), 0, dosage)
+  het       <- (allele == 1) * genotyped
+  z <- outer(as.integer(groups), seq_len(nlevels(groups)), "==") * 1
+  colnames(z) <- levels(groups)
+  list(n = crossprod(z, genotyped), allele = crossprod(z, allele), het = crossprod(z, het))
+}
+
+### ADDED (patch 19): replaces hierfstat::basic.stats (Ho, Hs, Fis per locus
+### and group; loci x groups like basic.stats). Hs is Nei's unbiased
+### within-group diversity as in basic.stats: n/(n-1) * (1 - sum p^2 - Ho/2n).
+### Reproduces the logged basic.stats means to 4 decimals.
+fast_basic_stats <- function(genind_object, groups) {
+  counts <- group_counts(genind_object, groups)
+  n <- counts$n
+  p <- counts$allele / (2 * n)
+  Ho <- counts$het / n
+  Hs <- n / (n - 1) * (1 - p^2 - (1 - p)^2 - Ho / (2 * n))
+  Ho[n < 1] <- NA; Hs[n < 2] <- NA
+  list(Ho = t(Ho), Hs = t(Hs), Fis = t(1 - Ho / Hs))
+}
+
+### ADDED (patch 19): observed pairwise WC Fst, both triangles filled.
+fast_fst_matrix <- function(genind_object, groups) {
+  counts <- group_counts(genind_object, groups)
+  m <- wc_pairwise_fst(counts$n, counts$allele, counts$het)
+  m[upper.tri(m)] <- t(m)[upper.tri(m)]
+  m
+}
+
 ### ADDED (patch 15): one-sided permutation p-values for every pair. Group
 ### labels are shuffled among individuals; per-group sums are crossproducts of
 ### a one-hot label matrix with the genotype matrices.
@@ -282,8 +319,10 @@ analyse_grouping <- function(grouping_spec) {
   # ---------------------------------------------------------------------------
   # Diversity
   # ---------------------------------------------------------------------------
-  hierfstat_data <- genind2hierfstat(genind_group)
-  basic_stats    <- basic.stats(hierfstat_data, diploid = TRUE)
+  ### CHANGED (patch 19): matrix version of basic.stats (same values, minutes
+  ### faster per grouping). hierfstat is still used once, in the cohort
+  ### grouping, to check the fast Fst against pairwise.WCfst.
+  basic_stats <- fast_basic_stats(genind_group, group_factor)
 
   observed_het_long <- as.data.frame(basic_stats$Ho) %>%
     rownames_to_column("locus") %>%
@@ -307,21 +346,22 @@ analyse_grouping <- function(grouping_spec) {
   # it does not loop over pairs, so it runs by default unlike the pairwise Fst
   # bootstrap. Same caveat about locus non-independence applies to its width.
   diversity_summary <- tryCatch({
-    ### CHANGED (patch 14): bootstrap one group at a time. boot.ppfis returns
-    ### its CI rows in its own population order, which is not
-    ### levels(group_factor); labelling them positionally attached CIs to the
-    ### wrong groups (e.g. reach: Above_dam 0.0046 with CI 0.0077-0.0105).
-    ### Rows of hierfstat_data follow the individuals of genind_group, which
-    ### are the individuals of group_factor in the same order.
-    need(nrow(hierfstat_data) == length(group_factor),
-         "hierfstat_data and group_factor have different lengths.")
-    fis_intervals <- bind_rows(lapply(levels(group_factor), function(level) {
-      rows <- which(group_factor == level)
-      fis_bootstrap <- boot.ppfis(dat = hierfstat_data[rows, , drop = FALSE],
-                                  nboot = n_bootstrap_reps, quant = c(0.025, 0.975))
-      tibble(group = level, Fis_L95 = fis_bootstrap$fis.ci[1, 1],
-             Fis_U95 = fis_bootstrap$fis.ci[1, 2])
-    }))
+    ### CHANGED (patch 19): locus bootstrap of the ratio-of-sums Fis itself, per
+    ### group, from the per-locus Ho and Hs. Consistent with the point estimate
+    ### by construction (boot.ppfis estimated a different statistic and failed
+    ### on single-group input). Loci are linked, so the CI is a lower bound on
+    ### uncertainty.
+    ho <- basic_stats$Ho; hs <- basic_stats$Hs
+    usable <- !is.na(ho) & !is.na(hs)
+    ho[!usable] <- 0; hs[!usable] <- 0
+    boot_fis <- vapply(seq_len(n_bootstrap_reps), function(rep_i) {
+      idx <- sample(nrow(ho), replace = TRUE)
+      1 - colSums(ho[idx, , drop = FALSE]) / colSums(hs[idx, , drop = FALSE])
+    }, numeric(ncol(ho)))
+    boot_fis <- matrix(boot_fis, nrow = ncol(ho), dimnames = list(colnames(ho), NULL))
+    fis_intervals <- tibble(group   = rownames(boot_fis),
+                            Fis_L95 = apply(boot_fis, 1, quantile, 0.025),
+                            Fis_U95 = apply(boot_fis, 1, quantile, 0.975))
     out <- left_join(diversity_summary, fis_intervals, by = "group")
     outside <- out$group[!is.na(out$Fis_L95) & (out$Fis < out$Fis_L95 | out$Fis > out$Fis_U95)]
     if (length(outside) > 0)
@@ -380,7 +420,7 @@ analyse_grouping <- function(grouping_spec) {
 
   if (nlevels(group_factor) >= 2) {
 
-    fst_matrix <- as.matrix(pairwise.WCfst(hierfstat_data))
+    fst_matrix <- fast_fst_matrix(genind_group, group_factor)     ### CHANGED (patch 19)
     fst_matrix[upper.tri(fst_matrix)] <- NA     # keep one triangle only
     fst_pairs <- as.data.frame(fst_matrix) %>%
       rownames_to_column("group1") %>%
@@ -389,6 +429,7 @@ analyse_grouping <- function(grouping_spec) {
 
     if (run_fst_bootstrap) {
       msg("  bootstrapping pairwise Fst (", n_bootstrap_reps, " reps; slow) ...")
+      hierfstat_data <- genind2hierfstat(genind_group)
       fst_bootstrap <- boot.ppfst(dat = hierfstat_data, nboot = n_bootstrap_reps,
                                   quant = c(0.025, 0.975))
       # The bootstrap fills one triangle, which is not necessarily the same
@@ -457,9 +498,10 @@ analyse_grouping <- function(grouping_spec) {
                   n_permutations, permutation$n_loci,
                   as.numeric(difftime(Sys.time(), t_start, units = "secs"))))
       # Same estimator as hierfstat? Compare the observed matrices on full loci.
-      if (is.na(n_permutation_loci)) {
-        hier <- as.matrix(pairwise.WCfst(hierfstat_data))[rownames(permutation$observed),
-                                                          colnames(permutation$observed)]
+      ### CHANGED (patch 19): hierfstat check once, on the cohort grouping
+      if (is.na(n_permutation_loci) && grouping_spec$name == "cohort") {
+        hier <- as.matrix(pairwise.WCfst(genind2hierfstat(genind_group)))[
+          rownames(permutation$observed), colnames(permutation$observed)]
         max_diff <- max(abs(permutation$observed - hier), na.rm = TRUE)
         msg(sprintf("  fast WC vs hierfstat: max |difference| = %.2e%s", max_diff,
                     if (max_diff > 1e-6) "  !! estimators disagree; check before using p-values" else ""))
