@@ -29,6 +29,14 @@
 #   Rscript scripts/run_all.R --dry-run    only report what would run and why
 #   Rscript scripts/run_all.R --force 03   rerun 03 (and whatever that changes)
 #   Rscript scripts/run_all.R --only 08b   consider only that step
+#   Rscript scripts/run_all.R --record     mark every step whose outputs exist
+#                                          as up to date now, without running
+#                                          (set a baseline once, e.g. after
+#                                          editing config or moving code)
+#
+# Manual steps (01 filtering, 06 COLONY inputs) never run on their own: if
+# they are out of date the runner says so, and --force 01 / --force 06 runs
+# them. Re-filtering or regenerating cluster inputs should be deliberate.
 # =============================================================================
 
 source("scripts/00_config.R")
@@ -37,6 +45,7 @@ args    <- if (exists("run_all_args")) run_all_args else commandArgs(trailingOnl
 dry_run <- "--dry-run" %in% args
 force   <- if ("--force" %in% args) args[which(args == "--force") + 1] else character()
 only    <- if ("--only"  %in% args) args[which(args == "--only")  + 1] else character()
+record  <- "--record" %in% args
 
 p <- function(...) project_path(...)
 
@@ -45,7 +54,7 @@ p <- function(...) project_path(...)
 # every file in it). optional inputs count when present and never block.
 # -----------------------------------------------------------------------------
 steps <- list(
-  list(id = "01", script = "01_filter_vcf.R",
+  list(id = "01", script = "01_filter_vcf.R", manual = TRUE,
        inputs = c(paths$raw_vcf),
        outputs = c(paths$filtered_vcf, paths$filter_log)),
   list(id = "02", script = "02_sample_metadata.R",
@@ -66,7 +75,7 @@ steps <- list(
   list(id = "08c", script = "08c_ldne_stratag.R", needs_package = "strataG",
        inputs = c(p("results/07_ldne/ldne_manifest.csv"), p("scripts/lib/ldne_direct.R")),
        outputs = c(p("results/07_ldne/stratag/ldne_stratag_check.csv"))),
-  list(id = "06", script = "06_colony_inputs.R",
+  list(id = "06", script = "06_colony_inputs.R", manual = TRUE,
        inputs = c(paths$filtered_vcf, paths$sample_meta, p("scripts/lib/colony_dat_writer.R")),
        outputs = c(p("results/06_colony/run_plan.csv")),
        then = paste("COLONY runs on the cluster: upload results/06_colony/*.dat,",
@@ -137,10 +146,28 @@ decide <- function(step) {
 # Run
 # -----------------------------------------------------------------------------
 if (length(only)) steps <- Filter(function(s) s$id %in% only, steps)
-message(strrep("=", 72), "\n run_all.R", if (dry_run) " (dry run)" else "", "\n", strrep("=", 72))
+message(strrep("=", 72), "\n run_all.R",
+        if (record) " (recording baseline)" else if (dry_run) " (dry run)" else "",
+        "\n", strrep("=", 72))
 
 for (step in steps) {
   decision <- decide(step)
+  if (record) {
+    if (all(file.exists(step$outputs)) && !isTRUE(decision$blocked) &&
+        file.exists(p("scripts", step$script))) {
+      state[[step$id]] <- fingerprint(c(p("scripts", step$script), shared_inputs, step$inputs,
+                                        step$external_inputs, present(step$optional)))
+      saveRDS(state, state_file)
+      message(sprintf("[%s] %-24s recorded as up to date", step$id, step$script))
+    } else message(sprintf("[%s] %-24s not recorded (outputs missing or inputs not ready)",
+                           step$id, step$script))
+    next
+  }
+  if (decision$run && isTRUE(step$manual) && !(step$id %in% force)) {
+    message(sprintf("\n[%s] %-24s OUT OF DATE (manual step) -- %s\n      run it deliberately with --force %s",
+                    step$id, step$script, decision$why, step$id))
+    next
+  }
   message(sprintf("\n[%s] %-24s %s", step$id, step$script,
                   if (decision$run) paste("RUN  --", decision$why) else paste("skip --", decision$why)))
   if (isTRUE(decision$record) && !dry_run) {
