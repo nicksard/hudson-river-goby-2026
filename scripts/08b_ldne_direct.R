@@ -60,7 +60,7 @@ groups <- sub("\\.gen$", "", list.files(genepop_dir, pattern = "\\.gen$"))
 if (exists("ld_direct_groups")) groups <- intersect(groups, ld_direct_groups)
 msg("08b: direct LD Ne for ", length(groups), " group(s): ", paste(groups, collapse = ", "))
 
-source("scripts/lib/ldne_direct.R")      # read_genepop(), ne_from_r2p(), ld_direct()
+source("scripts/lib/ldne_direct.R", local = TRUE)      # read_genepop(), ne_from_r2p(), ld_direct()
 
 rows <- list()
 for (g in groups) {

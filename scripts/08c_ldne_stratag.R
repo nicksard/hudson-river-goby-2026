@@ -45,7 +45,7 @@ out_dir     <- project_path("results/07_ldne/stratag")
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 pcrit       <- ldne_settings$pcrit
 block_size  <- 1500
-source("scripts/lib/ldne_direct.R")
+source("scripts/lib/ldne_direct.R", local = TRUE)
 
 check_groups  <- c("Cohort_2023", "Cohort_2024", "NearComplete_All")
 n_loci_subset <- 1000

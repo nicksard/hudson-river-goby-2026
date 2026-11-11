@@ -39,7 +39,7 @@
 # =============================================================================
 
 source("scripts/00_config.R")
-source(project_path("scripts", "lib", "colony_dat_writer.R"))   # colony.dat.create_FLEX.R()
+source(project_path("scripts", "lib", "colony_dat_writer.R"), local = TRUE)   # colony.dat.create_FLEX.R()
 
 need_pkgs(c("dplyr", "readr"))
 suppressPackageStartupMessages({ library(dplyr); library(readr) })
