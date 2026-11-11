@@ -150,7 +150,11 @@ ne_at <- function(comparison_table, generation_length) {
   ### observed Fst is not significant. Approximate: at the bound itself the
   ### power to detect is only about 50%.
   if ("Fst_null95" %in% names(out)) {
+    ### CHANGED (patch 20): a floor only means something where drift was not
+    ### detected; where Fst is significant the estimate replaces it.
     out <- out %>% mutate(Ne_floor = fst_to_ne(t_gen, Fst_null95))
+    if ("p_perm" %in% names(out))
+      out <- out %>% mutate(Ne_floor = ifelse(p_perm < alpha_temporal, NA_real_, Ne_floor))
   }
   out
 }
@@ -185,6 +189,7 @@ if (nrow(informative)) {
 }
 if ("Ne_floor" %in% names(temporal_ne)) {
   floors <- temporal_ne %>% filter(min_N >= cohort_settings$min_n_estimator, is.finite(Ne_floor))
+  if (!nrow(floors)) msg("  detectable-Ne floor: no well-powered pair lacks significant drift")
   if (nrow(floors))
     msg(sprintf("  detectable-Ne floor (well-powered pairs): Ne below ~%.0f would have produced detectable drift (range %.0f - %.0f)",
                 max(floors$Ne_floor), min(floors$Ne_floor), max(floors$Ne_floor)))
