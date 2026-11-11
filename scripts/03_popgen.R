@@ -189,17 +189,24 @@ fast_fst_permutation <- function(genind_object, groups, n_reps, n_loci = NA) {
     wc_pairwise_fst(crossprod(z, genotyped), crossprod(z, allele), crossprod(z, het))
   }
   observed <- fst_for(groups)
-  exceed <- matrix(0, nrow(observed), ncol(observed))
+  null_draws <- array(NA_real_, c(dim(observed), n_reps))
   for (rep_i in seq_len(n_reps)) {
-    permuted <- fst_for(factor(sample(as.character(groups)), levels = levels(groups)))
-    exceed <- exceed + (permuted >= observed)
+    null_draws[, , rep_i] <- fst_for(factor(sample(as.character(groups)),
+                                            levels = levels(groups)))
   }
+  exceed <- apply(sweep(null_draws, 1:2, observed, ">="), 1:2, sum)
   p <- (1 + exceed) / (n_reps + 1)
   p[is.na(observed)] <- NA
   dimnames(p) <- dimnames(observed)
+  ### ADDED (patch 16): 95th percentile of the null per pair = the largest Fst
+  ### sampling alone produces here. 04 turns it into a detectable-Ne floor.
+  null95 <- apply(null_draws, 1:2, quantile, probs = 0.95, na.rm = TRUE, names = FALSE)
+  null95[is.na(observed)] <- NA
+  dimnames(null95) <- dimnames(observed)
   # fill both triangles so joins work whichever way a pair is oriented
   symmetric <- function(m) { m[upper.tri(m)] <- t(m)[upper.tri(m)]; m }
-  list(observed = symmetric(observed), p = symmetric(p), n_loci = ncol(dosage))
+  list(observed = symmetric(observed), p = symmetric(p), null95 = symmetric(null95),
+       n_loci = ncol(dosage))
 }
 
 # Turns a grouping specification from popgen_groupings into one label per
@@ -460,7 +467,11 @@ analyse_grouping <- function(grouping_spec) {
       p_long <- as.data.frame(p_matrix) %>%
         rownames_to_column("group1") %>%
         pivot_longer(-group1, names_to = "group2", values_to = "p_perm") %>%
-        filter(!is.na(p_perm))
+        filter(!is.na(p_perm)) %>%
+        left_join(as.data.frame(permutation$null95) %>%
+                    rownames_to_column("group1") %>%
+                    pivot_longer(-group1, names_to = "group2", values_to = "Fst_null95"),
+                  by = c("group1", "group2"))
       fst_pairs <- fst_pairs %>% left_join(p_long, by = c("group1", "group2"))
 
       msg("  permutation p-values (one-sided; p > 0.05 means indistinguishable):")

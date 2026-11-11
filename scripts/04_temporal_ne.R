@@ -106,7 +106,7 @@ comparisons <- bind_rows(
          N_b         = ifelse(cohort1 < cohort2, N2, N1),
          min_N       = pmin(N1, N2)) %>%
   select(source, site, cohort_a, cohort_b, N_a, N_b, min_N, years_apart,
-         Fst, any_of(c("Fst_L95", "Fst_U95", "p_perm")))
+         Fst, any_of(c("Fst_L95", "Fst_U95", "p_perm", "Fst_null95")))
 
 n_dropped <- sum(comparisons$years_apart < settings$min_years_apart)
 comparisons <- comparisons %>% filter(years_apart >= settings$min_years_apart)
@@ -126,6 +126,7 @@ msg("  permutation p: ", ifelse(has_perm, "present", "none -- set run_fst_permut
 # Low Fst means high Ne, so the Fst upper limit gives the Ne lower limit and
 # vice versa. Any Fst limit at or below zero puts that Ne limit at Inf.
 fst_to_ne <- function(t_gen, fst) ifelse(fst > 0, t_gen / (4 * fst), Inf)
+alpha_temporal <- if (is.null(settings$alpha)) 0.05 else settings$alpha
 
 ne_at <- function(comparison_table, generation_length) {
   out <- comparison_table %>%
@@ -139,11 +140,28 @@ ne_at <- function(comparison_table, generation_length) {
     out <- out %>% mutate(Ne_L95 = fst_to_ne(t_gen, Fst_U95),
                           Ne_U95 = fst_to_ne(t_gen, Fst_L95))
   }
+  ### ADDED (patch 16): detectable-Ne floor. Fst_null95 is the largest Fst that
+  ### sampling alone produces for this pair (95th percentile of the permutation
+  ### null). Drift from an Ne below t / (4 * Fst_null95) would be expected to
+  ### exceed it, so that value is an approximate lower bound on Ne when the
+  ### observed Fst is not significant. Approximate: at the bound itself the
+  ### power to detect is only about 50%.
+  if ("Fst_null95" %in% names(out)) {
+    out <- out %>% mutate(Ne_floor = fst_to_ne(t_gen, Fst_null95))
+  }
   out
 }
 
 temporal_ne <- ne_at(comparisons, settings$primary_generation_length) %>%
-  mutate(flag = case_when(Fst <= 0 ~ "Fst <= 0: Ne undefined",
+  ### CHANGED (patch 16): Ne is only estimated when Fst is significantly > 0.
+  ### Otherwise the drift signal is indistinguishable from sampling noise and
+  ### only the floor (Ne_floor) is reported.
+  mutate(significant = if (has_perm) p_perm < alpha_temporal else NA,
+         Ne = if (has_perm) ifelse(significant %in% TRUE, Ne, NA_real_) else Ne,
+         flag = case_when(has_perm & !(significant %in% TRUE) ~
+                            paste0("Fst not > 0 (p = ", if (has_perm) round(p_perm, 3) else NA,
+                                   "): Ne not estimable; floor only"),
+                          Fst <= 0 ~ "Fst <= 0: Ne undefined",
                           min_N < cohort_settings$min_n_estimator ~ "low precision (min N < 30)",
                           TRUE ~ "")) %>%
   arrange(source, site, cohort_a, cohort_b)
@@ -152,13 +170,21 @@ write_csv(temporal_ne, file.path(output_dir, "temporal_ne.csv"))
 msg("\n  temporal Ne at generation length = ", settings$primary_generation_length, " yr:")
 msg_table(as.data.frame(temporal_ne %>%
   mutate(Fst = signif(Fst, 3),
-         across(any_of(c("Ne", "Ne_L95", "Ne_U95")), ~round(.x, 0))) %>%
+         across(any_of(c("Ne", "Ne_L95", "Ne_U95", "Ne_floor")), ~round(.x, 0))) %>%
   select(-any_of(c("Fst_L95", "Fst_U95")))), row.names = FALSE)
 
 informative <- temporal_ne %>% filter(is.finite(Ne), flag == "")
 if (nrow(informative)) {
-  msg(sprintf("\n  informative comparisons (finite Ne, min N >= %d): Ne %.0f - %.0f",
+  msg(sprintf("\n  informative comparisons (Fst significant, finite Ne, min N >= %d): Ne %.0f - %.0f",
               cohort_settings$min_n_estimator, min(informative$Ne), max(informative$Ne)))
+} else {
+  msg("\n  no comparison has Fst significantly > 0: temporal Ne is not estimable.")
+}
+if ("Ne_floor" %in% names(temporal_ne)) {
+  floors <- temporal_ne %>% filter(min_N >= cohort_settings$min_n_estimator, is.finite(Ne_floor))
+  if (nrow(floors))
+    msg(sprintf("  detectable-Ne floor (well-powered pairs): Ne below ~%.0f would have produced detectable drift (range %.0f - %.0f)",
+                max(floors$Ne_floor), min(floors$Ne_floor), max(floors$Ne_floor)))
 }
 
 
@@ -168,15 +194,20 @@ if (nrow(informative)) {
 sensitivity_long <- bind_rows(lapply(settings$generation_lengths,
                                      function(g) ne_at(comparisons, g)))
 
+### CHANGED (patch 16): where Fst is not significant, the sensitivity table
+### carries the detectable-Ne floor instead of a point estimate (basis column).
+use_floor <- has_perm && "Ne_floor" %in% names(sensitivity_long)
 sensitivity_wide <- sensitivity_long %>%
-  mutate(column = paste0("Ne_T", generation_length),
+  mutate(basis  = if (use_floor) ifelse(p_perm < alpha_temporal, "estimate", "floor") else "estimate",
+         Ne     = if (use_floor) ifelse(basis == "estimate", Ne, Ne_floor) else Ne,
+         column = paste0("Ne_T", generation_length),
          Ne     = ifelse(t_ge_g, round(Ne, 0), NA)) %>%     # NA where t < g
-  select(source, site, cohort_a, cohort_b, years_apart, Fst, column, Ne) %>%
+  select(source, site, cohort_a, cohort_b, years_apart, Fst, basis, column, Ne) %>%
   pivot_wider(names_from = column, values_from = Ne) %>%
   arrange(source, site, cohort_a, cohort_b)
 
 write_csv(sensitivity_wide, file.path(output_dir, "generation_length_sensitivity.csv"))
-msg("\n  generation-length sensitivity (NA = samples less than one generation apart):")
+msg("\n  generation-length sensitivity (basis = estimate or detectable floor; NA = samples less than one generation apart):")
 msg_table(as.data.frame(sensitivity_wide %>% mutate(Fst = signif(Fst, 3))), row.names = FALSE)
 
 msg("\n  wrote ", output_dir)
