@@ -196,7 +196,15 @@ cohort_settings <- list(
   # Below this a group can be described but its Fst and any Ne derived from it
   # are too imprecise to interpret. Groups under this are reported with a
   # warning rather than silently dropped.
-  min_n_estimator = 30
+  min_n_estimator = 30,
+
+  ### ADDED (patch 18): age-ambiguity sensitivity. A fish's otolith age is
+  ### flagged ambiguous when its length overlaps fish of the other age class
+  ### caught within this many days of it in the same year (age 0 at least as
+  ### long as the shortest nearby age 1, or age 1 no longer than the longest
+  ### nearby age 0). Growth through the season makes a fixed length cut wrong.
+  ### cohort_strict = cohort with ambiguous fish removed.
+  age_window_days = 30
 )
 
 
@@ -265,7 +273,7 @@ ldne_settings <- list(
   # Groups written as one .gen each. "all" = the whole analysis set; "cohort" =
   # one file per birth cohort. Add "albany_troy_cohort" to also write the
   # Albany+Troy-pooled cohort files the earlier LDNe tables used.
-  groupings = c("all", "cohort", "near_complete"),
+  groupings = c("all", "cohort", "cohort_strict", "near_complete"),
 
   ### NEW -- "near_complete": a robustness subset with almost no missing data,
   # where NeEstimator's missing-data revision (Peel et al. 2013) should change
@@ -387,7 +395,9 @@ popgen_groupings <- list(
   list(name = "reach",             by = "location", location_scheme = "reach"),
   list(name = "site",              by = "location", location_scheme = "site"),
   list(name = "cohort_by_reach",   by = "both",     location_scheme = "reach"),
-  list(name = "cohort_by_site",    by = "both",     location_scheme = "site")
+  list(name = "cohort_by_site",    by = "both",     location_scheme = "site"),
+  ### ADDED (patch 18): cohorts without age-ambiguous fish (sensitivity)
+  list(name = "cohort_strict",     by = "cohort_strict", location_scheme = NULL)
 )
 
 # Pairs to report as the primary, unconfounded contrasts. Named so that

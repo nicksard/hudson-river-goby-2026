@@ -90,6 +90,14 @@ if ("cohort" %in% settings$groupings) {
       analysis_set$sample[analysis_set$cohort == cohort_year]
   }
 }
+### ADDED (patch 18): cohorts without age-ambiguous fish
+if ("cohort_strict" %in% settings$groupings && "cohort_strict" %in% names(analysis_set)) {
+  strict <- analysis_set %>% filter(!is.na(cohort_strict))
+  for (cohort_year in sort(unique(strict$cohort_strict))) {
+    group_members[[paste0("CohortStrict_", cohort_year)]] <-
+      strict$sample[strict$cohort_strict == cohort_year]
+  }
+}
 if ("albany_troy_cohort" %in% settings$groupings) {
   pooled <- analysis_set %>% filter(loc_albany_troy == "Albany_Troy")
   group_members[["AlbanyTroy_All"]] <- pooled$sample

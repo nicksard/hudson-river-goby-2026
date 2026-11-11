@@ -95,7 +95,10 @@ split_label <- function(fst_pairs) {
 comparisons <- bind_rows(
   read_grouping("cohort") %>% split_label(),
   read_grouping("cohort_by_site") %>% split_label() %>%
-    filter(site1 == site2)                     # temporal only: site held fixed
+    filter(site1 == site2),                    # temporal only: site held fixed
+  ### ADDED (patch 18): age-ambiguity sensitivity, if 03 produced it
+  if (dir.exists(file.path(paths$dir_popgen, "cohort_strict")))
+    read_grouping("cohort_strict") %>% split_label()
 ) %>%
   mutate(site        = coalesce(site1, "all sites"),
          years_apart = abs(cohort2 - cohort1),

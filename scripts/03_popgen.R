@@ -221,6 +221,7 @@ build_group_labels <- function(sample_info, grouping_spec) {
 
   switch(grouping_spec$by,
     cohort   = as.character(sample_info$cohort),
+    cohort_strict = as.character(sample_info$cohort_strict),   ### ADDED (patch 18)
     location = location_labels,
     both     = ifelse(is.na(location_labels) | is.na(sample_info$cohort),
                       NA_character_,

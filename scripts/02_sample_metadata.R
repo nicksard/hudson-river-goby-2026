@@ -250,10 +250,59 @@ if (nrow(implausible_lengths)) {
 
 
 # =============================================================================
+# 6b. Age-ambiguity flag for the cohort sensitivity analysis (patch 18)
+# =============================================================================
+# Otolith ages in 12-126 mm fish are interpretations, and fish grow through a
+# sampling season that runs April to October. So a fish is compared only with
+# fish of the other age class caught within cohort_settings$age_window_days of
+# it in the same year. Flagged fish stay in the main analyses; cohort_strict
+# drops them for the sensitivity runs.
+parse_collection_date <- function(x) {
+  number <- suppressWarnings(as.numeric(as.character(x)))
+  out <- as.Date(number, origin = "1899-12-30")            # Excel serial days
+  as_text <- is.na(out) & !is.na(x)
+  out[as_text] <- as.Date(as.character(x[as_text]), optional = TRUE,
+                          tryFormats = c("%Y-%m-%d", "%m/%d/%Y", "%Y/%m/%d"))
+  out
+}
+
+flag_age_ambiguous <- function(collection_year, collection_date, age, length_mm,
+                               window_days) {
+  day <- as.numeric(format(collection_date, "%j"))
+  ambiguous <- rep(FALSE, length(age))
+  for (i in seq_along(age)) {
+    if (is.na(age[i]) || is.na(length_mm[i]) || is.na(day[i])) { ambiguous[i] <- NA; next }
+    nearby <- which(collection_year == collection_year[i] & !is.na(day) &
+                    abs(day - day[i]) <= window_days & !is.na(length_mm) &
+                    !is.na(age) & age != age[i])
+    if (!length(nearby)) next
+    older   <- nearby[age[nearby] > age[i]]
+    younger <- nearby[age[nearby] < age[i]]
+    ambiguous[i] <- (length(older)   && length_mm[i] >= min(length_mm[older])) ||
+                    (length(younger) && length_mm[i] <= max(length_mm[younger]))
+  }
+  ambiguous
+}
+
+date_column <- names(bio_data)[grepl("^date", trimws(names(bio_data)), ignore.case = TRUE)][1]
+bio_data$collection_date <- if (!is.na(date_column)) {
+  parse_collection_date(bio_data[[date_column]])
+} else as.Date(NA)
+bio_data$age_ambiguous <- flag_age_ambiguous(bio_data$collection_year, bio_data$collection_date,
+                                             bio_data$age, bio_data$length_mm,
+                                             cohort_settings$age_window_days)
+bio_data$cohort_strict <- ifelse(bio_data$age_ambiguous %in% FALSE, bio_data$cohort, NA)
+msg(sprintf("\n  age ambiguity (+/- %d days): %d fish flagged; date column: %s",
+            cohort_settings$age_window_days, sum(bio_data$age_ambiguous %in% TRUE),
+            ifelse(is.na(date_column), "none found", date_column)))
+
+
+# =============================================================================
 # 7. Assemble the table and decide analysis_keep
 # =============================================================================
 sample_metadata <- bio_data %>%
-  transmute(sample, plate_id, collection_year, age, cohort,
+  transmute(sample, plate_id, collection_year, collection_date, age, cohort,
+            age_ambiguous, cohort_strict,
             region_raw, region = as.character(region),
             across(starts_with("loc_")),
             length_mm) %>%
