@@ -7,23 +7,36 @@
 # Author:   Nick Sard
 # Coauthor: Claude (Anthropic), coding assistant
 # Created:  2026-11-11
+# Updated:  2026-11-11 (08b now applies the (S/(S-1))^2 correction; reframed)
 #
-# Why this exists:
+# Description:
 #   The Table 3 LD estimates come from our own code (08b, scripts/lib/
-#   ldne_direct.R). A reader will ask how we know it is right. Three answers:
-#     1. It recovers known Ne in simulations (true Ne = 100; 94-102 across
-#        1,200-10,000 loci, random or clustered missing data; 07b_ldne_check.R).
-#     2. It matches NeEstimator 2.1 run on the same files (all pairs; e.g.
-#        near-complete set 503 vs 476.9, 2023 cohort 587 vs 516.3).
-#     3. It matches strataG::ldNe (Archer et al. 2017), an independent,
-#        published R implementation of the same Waples & Do (2008) estimator
-#        "adapted from code by R. Waples and W. Larson". This script.
+#   ldne_direct.R). NeEstimator 2.1 is the usual tool, but it is a
+#   closed-source Windows/Java program that is hard to obtain and whose large
+#   runs on our Windows PC produced corrupted output. This script records how
+#   08b compares with strataG::ldNe (Archer et al. 2017), the only published R
+#   implementation of the Waples & Do (2008) estimator.
 #
-#   strataG computes r^2 for every locus pair in R, which is slow, so the
-#   comparison uses replicate random locus subsets. Both methods see exactly
-#   the same fish and loci. The comparison is on all locus pairs, which is
-#   what strataG computes; excluding same-scaffold pairs (our primary
-#   estimate) is a filter applied on top of the same r^2 values.
+#   What the comparison showed (logged 2026-11-11):
+#     * Locus-pair r^2: 08b's uncorrected Pearson r^2 matches strataG's mean r^2
+#       closely (same pairs, same fish). The r^2 calculation is not in question.
+#     * strataG multiplies r^2 by (S/(S-1))^2 before comparing it with E(r^2),
+#       following the Waples & Larson code it was adapted from. 08b now does
+#       the same (lib/ldne_direct.R, sample_size_correction = TRUE). With it,
+#       08b reproduces NeEstimator's point estimates on simulated data
+#       (n = 45, 94, 166) and on the goby files run under Wine.
+#     * strataG's own Ne remains lower than 08b and NeEstimator. Part of the
+#       gap is its MAF filtering, which does not behave as documented in
+#       version 2.5.5; the rest we could not trace. We therefore report
+#       NeEstimator-equivalent values from 08b and keep this script as a
+#       record of the cross-check, not as the source of any reported number.
+#
+# Order of operations:
+#   1. For each check group, read the Genepop file written by 07.
+#   2. Draw n_replicates random subsets of n_loci_subset loci.
+#   3. On each subset, compute 08b's all-pairs estimate (uncorrected r^2 for
+#      the r^2 comparison; corrected r^2 for Ne) and strataG::ldNe.
+#   4. Write one row per subset and log the Ne ratio.
 #
 # Install strataG (not on CRAN):
 #   options(repos = c(zkamvar = "https://zkamvar.r-universe.dev",
@@ -32,6 +45,14 @@
 #
 # Inputs:   results/07_ldne/genepop/<group>.gen (from 07)
 # Outputs:  results/07_ldne/stratag/ldne_stratag_check.csv
+#
+# References:
+#   Archer FI, Adams PE, Schneiders BB (2017) strataG: an R package for
+#     manipulating, summarizing and analysing population genetic data.
+#     Molecular Ecology Resources 17:5-11.
+#   Waples RS, Do C (2008) LDNE: a program for estimating effective population
+#     size from data on linkage disequilibrium. Molecular Ecology Resources
+#     8:753-756.
 # =============================================================================
 
 source("scripts/00_config.R")
@@ -82,7 +103,8 @@ for (g in check_groups) {
     cols <- sort(sample(ncol(dat$dosage), n_loci_subset))
     sub_dosage <- dat$dosage[, cols, drop = FALSE]
 
-    ours <- ld_direct(sub_dosage, dat$loci[cols])$all
+    ours     <- ld_direct(sub_dosage, dat$loci[cols])$all
+    ours_raw <- ld_direct(sub_dosage, dat$loci[cols], sample_size_correction = FALSE)$all
     t0 <- Sys.time()
     theirs <- strataG::ldNe(to_gtypes(sub_dosage, ids), maf.threshold = pcrit,
                             num.cores = n_cores)
@@ -91,14 +113,15 @@ for (g in check_groups) {
 
     rows[[length(rows) + 1]] <- data.frame(
       group = g, replicate = replicate, n_fish = nrow(sub_dosage), loci = n_loci_subset,
-      r2_08b = ours[["r2"]], r2_strataG = theirs$mean.rsq,
+      r2_08b_uncorrected = ours_raw[["r2"]], r2_08b_corrected = ours[["r2"]],
+      r2_strataG = theirs$mean.rsq,
       E_r2_08b = ours[["E"]], E_r2_strataG = theirs$mean.E.rsq,
       Ne_08b = ours[["Ne"]], Ne_strataG = theirs$Ne,
       strataG_L95 = theirs$param.lci, strataG_U95 = theirs$param.uci,
       strataG_minutes = minutes)
     msg(sprintf("  %-17s rep %d: Ne 08b %7.1f | strataG %7.1f (%.1f-%.1f) | r2 %.6f vs %.6f  [%.1f min]",
                 g, replicate, ours[["Ne"]], theirs$Ne, theirs$param.lci, theirs$param.uci,
-                ours[["r2"]], theirs$mean.rsq, minutes))
+                ours_raw[["r2"]], theirs$mean.rsq, minutes))
   }
 }
 
