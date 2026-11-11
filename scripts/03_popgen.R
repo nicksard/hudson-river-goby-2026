@@ -89,14 +89,15 @@ n_bootstrap_reps  <- 200
 # find. This is the defensible version of the negative-value noise floor, and
 # it is what a reviewer will ask for if the paper leans on any Fst value.
 #
-# Run on a random locus subset because permuting the full ~11,000-locus panel a
-# few hundred times is hours of work. Subsetting loci widens the null slightly
-# but does not invalidate it, and the observed statistic is computed on the same
-# subset so the comparison stays like-for-like. Off by default; turn it on for
-# the run that produces the final tables.
+### CHANGED (patch 15): the permutation now recomputes Weir & Cockerham Fst
+### from per-group allele, genotype and heterozygote counts with matrix algebra,
+### instead of calling hierfstat::pairwise.WCfst on a re-built object every rep.
+### One rep on the full panel takes milliseconds, so all loci are used and the
+### rep count is raised. The fast estimator is checked against hierfstat's
+### observed matrix every run (see the log line "fast WC vs hierfstat").
 run_fst_permutation <- TRUE
-n_permutations      <- 200
-n_permutation_loci  <- 2000
+n_permutations      <- 1000
+n_permutation_loci  <- NA     # NA = all loci
 
 need(file.exists(paths$filtered_vcf), "Run scripts/01_filter_vcf.R first.")
 need(file.exists(paths$sample_meta),  "Run scripts/02_sample_metadata.R first.")
@@ -139,6 +140,66 @@ msg("  analysis set after intersecting with the VCF: ", nInd(genind_all), " indi
 # is not pulled around by low-MAF loci.
 fis_ratio_of_sums <- function(observed_het, expected_het) {
   1 - sum(observed_het, na.rm = TRUE) / sum(expected_het, na.rm = TRUE)
+}
+
+### ADDED (patch 15): fast pairwise Weir & Cockerham (1984) Fst for biallelic
+### SNPs. Inputs are groups x loci matrices of: genotyped individuals (n),
+### copies of the first allele (allele_count) and heterozygotes (het_count).
+### Per pair and locus, the WC84 variance components a, b, c (r = 2 groups);
+### Fst = sum(a) / sum(a + b + c) over loci, as in hierfstat. Both alleles of a
+### biallelic locus give identical components, so one allele suffices.
+wc_pairwise_fst <- function(n, allele_count, het_count) {
+  groups <- rownames(n)
+  out <- matrix(NA_real_, length(groups), length(groups), dimnames = list(groups, groups))
+  for (i in seq_along(groups)[-1]) for (j in seq_len(i - 1)) {
+    n1 <- n[i, ]; n2 <- n[j, ]
+    ok <- n1 > 0 & n2 > 0 & (n1 + n2) > 2
+    n1 <- n1[ok]; n2 <- n2[ok]
+    p1 <- allele_count[i, ok] / (2 * n1); p2 <- allele_count[j, ok] / (2 * n2)
+    h1 <- het_count[i, ok] / n1;          h2 <- het_count[j, ok] / n2
+    nbar <- (n1 + n2) / 2
+    nc   <- 2 * nbar - (n1^2 + n2^2) / (2 * nbar)
+    pbar <- (n1 * p1 + n2 * p2) / (2 * nbar)
+    s2   <- (n1 * (p1 - pbar)^2 + n2 * (p2 - pbar)^2) / nbar
+    hbar <- (n1 * h1 + n2 * h2) / (2 * nbar)
+    pq   <- pbar * (1 - pbar)
+    a <- nbar / nc * (s2 - (pq - s2 / 2 - hbar / 4) / (nbar - 1))
+    b <- nbar / (nbar - 1) * (pq - s2 / 2 - (2 * nbar - 1) / (4 * nbar) * hbar)
+    c <- hbar / 2
+    out[i, j] <- sum(a) / sum(a + b + c)
+  }
+  out
+}
+
+### ADDED (patch 15): one-sided permutation p-values for every pair. Group
+### labels are shuffled among individuals; per-group sums are crossproducts of
+### a one-hot label matrix with the genotype matrices.
+fast_fst_permutation <- function(genind_object, groups, n_reps, n_loci = NA) {
+  first_allele <- !duplicated(locFac(genind_object))
+  dosage <- tab(genind_object)[, first_allele, drop = FALSE]  # copies of allele 1
+  if (!is.na(n_loci) && n_loci < ncol(dosage))
+    dosage <- dosage[, sort(sample(ncol(dosage), n_loci)), drop = FALSE]
+  genotyped <- !is.na(dosage) * 1
+  allele    <- ifelse(is.na(dosage), 0, dosage)
+  het       <- (allele == 1) * genotyped
+  one_hot <- function(g) { m <- outer(as.integer(g), seq_len(nlevels(g)), "==") * 1
+                           colnames(m) <- levels(g); m }
+  fst_for <- function(g) {
+    z <- one_hot(g)
+    wc_pairwise_fst(crossprod(z, genotyped), crossprod(z, allele), crossprod(z, het))
+  }
+  observed <- fst_for(groups)
+  exceed <- matrix(0, nrow(observed), ncol(observed))
+  for (rep_i in seq_len(n_reps)) {
+    permuted <- fst_for(factor(sample(as.character(groups)), levels = levels(groups)))
+    exceed <- exceed + (permuted >= observed)
+  }
+  p <- (1 + exceed) / (n_reps + 1)
+  p[is.na(observed)] <- NA
+  dimnames(p) <- dimnames(observed)
+  # fill both triangles so joins work whichever way a pair is oriented
+  symmetric <- function(m) { m[upper.tri(m)] <- t(m)[upper.tri(m)]; m }
+  list(observed = symmetric(observed), p = symmetric(p), n_loci = ncol(dosage))
 }
 
 # Turns a grouping specification from popgen_groupings into one label per
@@ -381,29 +442,21 @@ analyse_grouping <- function(grouping_spec) {
     # loci because the full panel makes this far too slow, and the subset costs
     # precision in the null rather than validity.
     if (run_fst_permutation) {
-      msg(sprintf("\n  permutation test: %d reps on %d random loci ...",
-                  n_permutations, n_permutation_loci))
-      locus_subset <- sample(nLoc(genind_group),
-                             min(n_permutation_loci, nLoc(genind_group)))
-      genind_subset <- genind_group[loc = locus_subset]
-
-      observed_fst <- as.matrix(pairwise.WCfst(genind2hierfstat(genind_subset)))
-
-      permuted_fst <- vapply(seq_len(n_permutations), function(rep_i) {
-        shuffled <- genind_subset
-        pop(shuffled) <- sample(pop(genind_subset))
-        as.vector(as.matrix(pairwise.WCfst(genind2hierfstat(shuffled))))
-      }, numeric(nlevels(group_factor)^2))
-
-      # One-sided: only an excess of differentiation is evidence of structure.
-      p_values <- vapply(seq_len(nlevels(group_factor)^2), function(cell_i) {
-        observed <- as.vector(observed_fst)[cell_i]
-        if (is.na(observed)) return(NA_real_)
-        (1 + sum(permuted_fst[cell_i, ] >= observed, na.rm = TRUE)) / (n_permutations + 1)
-      }, numeric(1))
-
-      p_matrix <- matrix(p_values, nrow = nlevels(group_factor),
-                         dimnames = dimnames(observed_fst))
+      t_start <- Sys.time()
+      permutation <- fast_fst_permutation(genind_group, group_factor,
+                                          n_permutations, n_permutation_loci)
+      msg(sprintf("\n  permutation test: %d reps on %d loci (%.1f s)",
+                  n_permutations, permutation$n_loci,
+                  as.numeric(difftime(Sys.time(), t_start, units = "secs"))))
+      # Same estimator as hierfstat? Compare the observed matrices on full loci.
+      if (is.na(n_permutation_loci)) {
+        hier <- as.matrix(pairwise.WCfst(hierfstat_data))[rownames(permutation$observed),
+                                                          colnames(permutation$observed)]
+        max_diff <- max(abs(permutation$observed - hier), na.rm = TRUE)
+        msg(sprintf("  fast WC vs hierfstat: max |difference| = %.2e%s", max_diff,
+                    if (max_diff > 1e-6) "  !! estimators disagree; check before using p-values" else ""))
+      }
+      p_matrix <- permutation$p
       p_long <- as.data.frame(p_matrix) %>%
         rownames_to_column("group1") %>%
         pivot_longer(-group1, names_to = "group2", values_to = "p_perm") %>%
