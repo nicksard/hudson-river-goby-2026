@@ -82,13 +82,21 @@ steps <- list(
                     "submit the array, download finished run folders into",
                     "results/06_colony/outputs/.")),
   list(id = "09", script = "09_colony_summary.R",
-       inputs = c(p("results/06_colony/run_plan.csv")),
+       inputs = c(p("results/06_colony/run_plan.csv"), p("scripts/lib/colony_parse.R")),
        external_inputs = c(p("results/06_colony/outputs")),
        outputs = c(p("results/09_colony/colony_run_metrics.csv"))),
   list(id = "05", script = "05_king.R",
        inputs = c(p("results/07_ldne/ldne_manifest.csv")),
        optional = c(p("results/09_colony/primary_sibling_pairs.csv")),
-       outputs = c(p("results/05_king/king_summary.csv")))
+       outputs = c(p("results/05_king/king_summary.csv"))),
+  # Sample-size sensitivity: 06b writes the subsets (run it by hand, like 06);
+  # 10 runs the LD half at once and adds COLONY runs as they are downloaded.
+  list(id = "10", script = "10_sampling_sensitivity.R",
+       inputs = c(p("results/06b_colony_sampling/fish_subsets.csv"),
+                  p("results/07_ldne/ldne_manifest.csv"),
+                  p("scripts/lib/ldne_direct.R"), p("scripts/lib/colony_parse.R")),
+       optional = c(p("results/06b_colony_sampling/outputs")),
+       outputs = c(p("results/10_sampling_sensitivity/sampling_summary.csv")))
 )
 # 00_config.R holds every step's settings, so a change there reruns everything.
 # Library files are listed as inputs of the steps that use them.
