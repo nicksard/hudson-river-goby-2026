@@ -135,6 +135,7 @@ colony_rows <- lapply(seq_len(nrow(run_plan)), function(i) {
             as_tibble(as.list(parse_ne(find_output(run_dir, "Ne")))))
 })
 colony_done <- bind_rows(colony_rows)
+if (!nrow(colony_done)) colony_done <- tibble(run_name = character())   # none downloaded yet
 msg(sprintf("  COLONY: %d of %d runs finished and downloaded", nrow(colony_done), nrow(run_plan)))
 
 by_run <- run_plan %>%
