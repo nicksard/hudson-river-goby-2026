@@ -96,7 +96,18 @@ steps <- list(
                   p("results/07_ldne/ldne_manifest.csv"),
                   p("scripts/lib/ldne_direct.R"), p("scripts/lib/colony_parse.R")),
        optional = c(p("results/06b_colony_sampling/outputs")),
-       outputs = c(p("results/10_sampling_sensitivity/sampling_summary.csv")))
+       outputs = c(p("results/10_sampling_sensitivity/sampling_summary.csv"))),
+  # Manuscript Figures 1-5 in one folder. 3 and 4 are copied from 09 and 10,
+  # so they are optional: the step reruns when either appears or changes.
+  list(id = "11", script = "11_figures.R",
+       inputs = c(paths$sample_meta,
+                  p("results/03_popgen/cohort/pairwise_fst.csv"),
+                  p("results/03_popgen/cohort/pca_scores.csv"),
+                  p("results/03_popgen/pca_variance.csv")),
+       optional = c(p("results/09_colony/Figure3_locus_sweep.png"),
+                    p("results/10_sampling_sensitivity/Figure4_sampling_sensitivity.png")),
+       outputs = c(p("results/figures/Figure1.png"), p("results/figures/Figure2.png"),
+                   p("results/figures/Figure5.png"), p("results/figures/figure_list.csv")))
 )
 # 00_config.R holds every step's settings, so a change there reruns everything.
 # Library files are listed as inputs of the steps that use them.

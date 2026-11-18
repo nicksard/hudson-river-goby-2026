@@ -7,7 +7,7 @@
 # Author:   Nick Sard
 # Coauthor: Claude (Anthropic), coding assistant
 # Created:  2026-11-11
-# Updated:  2026-11-11
+# Updated:  2026-11-18 (figure renamed to Figure 4)
 #
 # Description:
 #   For the full 2023 cohort, LD Nb is about 500-1,000 and sibship Nb about
@@ -43,7 +43,8 @@
 # Outputs:  results/10_sampling_sensitivity/ld_by_subset.csv (cache; redone
 #           automatically if lib/ldne_direct.R changes),
 #           sampling_by_run.csv, sampling_summary.csv,
-#           Figure_S_sampling_sensitivity.png
+#           Figure4_sampling_sensitivity.png (manuscript Figure 4; was
+#           Figure_S_sampling_sensitivity.png)
 #
 # References:
 #   Waples RS, Do C (2008) LDNE: a program for estimating effective
@@ -193,7 +194,7 @@ figure <- ggplot(plot_data, aes(x_shown, shown, colour = estimate)) +
   labs(x = "Fish sampled from the 2023 cohort", y = "Nb (log scale; lines = medians)",
        colour = NULL, shape = NULL) +
   theme_bw(base_size = 11) + theme(legend.position = "bottom", legend.box = "vertical")
-ggsave(file.path(output_dir, "Figure_S_sampling_sensitivity.png"), figure,
+ggsave(file.path(output_dir, "Figure4_sampling_sensitivity.png"), figure,
        width = 7, height = 5, dpi = 300)
 
 msg("\n  wrote ", output_dir)

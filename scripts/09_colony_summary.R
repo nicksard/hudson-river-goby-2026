@@ -3,8 +3,8 @@
 #
 # Hudson River round goby (Neogobius melanostomus) -- RADseq
 # Parse COLONY outputs from the 06 run design: sibship Nb, sibling dyads,
-# parent-count Np estimators, Figure 3 (locus + settings sweeps), Figure 4
-# (spatial pedigree of the primary run)
+# parent-count Np estimators, Figure 3 (locus sweep), and two supplementary
+# figures (settings sweep; spatial pedigree of the primary run)
 #
 # Author:   Nick Sard
 # Coauthor: Claude (Anthropic), coding assistant
@@ -44,7 +44,10 @@
 #           results/09_colony/primary_sibling_pairs.csv
 #           results/09_colony/Figure3_locus_sweep.png
 #           results/09_colony/FigureS_settings_sweep.png
-#           results/09_colony/Figure4_spatial_pedigree.png
+#           results/09_colony/FigureS_spatial_pedigree.png
+#             (was Figure4_spatial_pedigree.png; the manuscript's Figure 4
+#             is now the sample-size figure from 10, so this one is renamed
+#             to keep numbers from colliding. Not cited in the text.)
 #
 # Usage:    Rscript scripts/09_colony_summary.R   (rerun as more runs finish)
 # =============================================================================
@@ -167,7 +170,7 @@ panel <- function(y, label, tag) {
 }
 figure3 <- gridExtra::arrangeGrob(
   panel("Nb", "Sibship Nb (random mating)", "A"),
-  panel("Np_iChao1", "Np (iChao1)", "B"),
+  panel("Np_Chao1", "Np (Chao1)", "B"),   ### CHANGED 2026-11-18: the text reports Chao1
   panel("n_fs", "Full-sib dyads", "C"),
   panel("n_hs", "Half-sib dyads", "D"),
   ncol = 2)
@@ -190,10 +193,10 @@ if (nrow(settings_runs)) {
 
 
 # -----------------------------------------------------------------------------
-# Primary run: sibling pairs with site / cohort, and Figure 4
+# Primary run: sibling pairs with site / cohort, and the spatial pedigree
 # -----------------------------------------------------------------------------
 if (is.null(primary_pairs)) {
-  msg("\n  primary run not finished yet -- sibling-pair table and Figure 4 skipped")
+  msg("\n  primary run not finished yet -- sibling-pair table and spatial pedigree skipped")
 } else {
   site_info <- sample_metadata %>% select(sample, region, cohort, collection_year, length_mm)
   primary_pairs <- primary_pairs %>%
@@ -215,7 +218,8 @@ if (is.null(primary_pairs)) {
              length_mm1, length_mm2)), row.names = FALSE)
   }
 
-  # Figure 4 (06.2 layout): one row per multi-offspring family, sites N -> S
+  # Spatial pedigree (06.2 layout; supplementary): one row per multi-offspring
+  # family, sites N -> S
   primary_config <- read_best_config(find_output(
     file.path(outputs_dir, run_plan$run_name[run_plan$is_primary][1]), "BestConfig"))
   related <- unique(c(primary_pairs$sample1, primary_pairs$sample2))
@@ -265,9 +269,9 @@ if (is.null(primary_pairs)) {
           axis.text.y = element_blank(), axis.ticks.y = element_blank(),
           panel.border = element_rect(colour = "black", fill = NA, linewidth = 1),
           legend.position = "bottom")
-  ggsave(file.path(output_dir, "Figure4_spatial_pedigree.png"), figure4,
+  ggsave(file.path(output_dir, "FigureS_spatial_pedigree.png"), figure4,
          width = 10.5, height = 8.5, dpi = 300)
-  msg(sprintf("\n  Figure 4: %d multi-offspring families (%d dispersed)",
+  msg(sprintf("\n  spatial pedigree: %d multi-offspring families (%d dispersed)",
               length(family_order), n_distinct(families$family[families$spatial_status != "Sympatric (same site)"])))
 }
 
